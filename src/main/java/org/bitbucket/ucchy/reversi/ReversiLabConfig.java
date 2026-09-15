@@ -32,6 +32,18 @@ public class ReversiLabConfig {
     /** ゲーム終了してから、テレポートして元の場所に戻るまでの、待ち時間（秒） */
     private int sessionEndWaitSeconds;
 
+    /** 手番の制限時間（秒）。0以下なら制限しない。 */
+    private int turnTimeLimitSeconds;
+
+    /** 自分のターンになったときに再生する効果音 */
+    private String yourTurnSound;
+
+    /** 相手のターンになったときに再生する効果音 */
+    private String otherTurnSound;
+
+    /** 対局中に切断したプレイヤーの、再接続を待つ時間（秒） */
+    private int disconnectWaitSeconds;
+
     /** インベントリ切り替えシステムを使用するかどうか */
     private boolean enableTemporaryInventory;
 
@@ -105,6 +117,10 @@ public class ReversiLabConfig {
         broadcastSessionStartEnd = conf.getBoolean("broadcastSessionStartEnd", true);
         prohibitWorlds = conf.getStringList("prohibitWorlds");
         sessionEndWaitSeconds = conf.getInt("sessionEndWaitSeconds", 15);
+        turnTimeLimitSeconds = conf.getInt("turnTimeLimitSeconds", 600);
+        yourTurnSound = conf.getString("yourTurnSound", "block.note_block.pling,2.0");
+        otherTurnSound = conf.getString("otherTurnSound", "block.note_block.hat,1.0");
+        disconnectWaitSeconds = conf.getInt("disconnectWaitSeconds", 30);
         enableTemporaryInventory = conf.getBoolean("enableTemporaryInventory", false);
 
         betRewardType = BetRewardType.fromString(
@@ -143,6 +159,22 @@ public class ReversiLabConfig {
 
     public int getSessionEndWaitSeconds() {
         return sessionEndWaitSeconds;
+    }
+
+    public int getTurnTimeLimitSeconds() {
+        return turnTimeLimitSeconds;
+    }
+
+    public String getYourTurnSound() {
+        return yourTurnSound;
+    }
+
+    public String getOtherTurnSound() {
+        return otherTurnSound;
+    }
+
+    public int getDisconnectWaitSeconds() {
+        return disconnectWaitSeconds;
     }
 
     public boolean isEnableTemporaryInventory() {

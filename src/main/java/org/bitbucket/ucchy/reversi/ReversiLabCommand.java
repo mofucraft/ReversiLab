@@ -565,18 +565,7 @@ public class ReversiLabCommand implements TabExecutor {
             boolean isSelf = data.getName().equals(sender.getName());
             if ( isSelf ) isRankin = true;
 
-            String rank = (isSelf ? ChatColor.RED.toString() : "") +
-                    String.format("%1$2d", (index + 1));
-            String name = String.format("%1$-12s", data.getName());
-            String played = "" + data.get(kind).getPlayed();
-            String win = "" + data.get(kind).getWin();
-            String lose = "" + data.get(kind).getLose();
-            String ratio = String.format("%1$.1f", data.get(kind).getRatio() * 100);
-
-            String line = Messages.get("RankingFormat",
-                    new String[]{"%rank", "%name", "%played", "%win", "%lose", "%ratio"},
-                    new String[]{rank, name, played, win, lose, ratio});
-            sender.sendMessage(line);
+            sendRankingLine(sender, data, kind, index + 1, isSelf);
         }
 
         // 10位以内に入っていないなら、自分のスコアを探して表示する
@@ -584,24 +573,40 @@ public class ReversiLabCommand implements TabExecutor {
             for ( int index=10; index<datas.size(); index++ ) {
                 PlayerScoreData data = datas.get(index);
                 if ( data.getName().equals(sender.getName()) ) {
-                    String rank = ChatColor.RED + String.format("%1$2d", (index + 1));
-                    String name = String.format("%1$-12s", data.getName());
-                    String played = "" + data.get(kind).getPlayed();
-                    String win = "" + data.get(kind).getWin();
-                    String lose = "" + data.get(kind).getLose();
-                    String ratio = String.format("%1$.2f", data.get(kind).getRatio());
-
-                    String line = Messages.get("RankingFormat",
-                            new String[]{"%rank", "%name", "%played", "%win", "%lose", "%ratio"},
-                            new String[]{rank, name, played, win, lose, ratio});
-                    sender.sendMessage(line);
-
+                    sendRankingLine(sender, data, kind, index + 1, true);
                     break;
                 }
             }
         }
 
         return true;
+    }
+
+    /**
+     * ランキングの1行を、送信者に表示する
+     * @param sender 表示先
+     * @param data 表示するスコアデータ
+     * @param kind スコアの種別（versus、easy、normal、hard）
+     * @param rankNum 順位
+     * @param isSelf 送信者自身のスコアかどうか
+     */
+    private void sendRankingLine(CommandSender sender,
+            PlayerScoreData data, String kind, int rankNum, boolean isSelf) {
+
+        String rank = (isSelf ? ChatColor.RED.toString() : "") +
+                String.format("%1$2d", rankNum);
+        String name = String.format("%1$-12s", data.getName());
+        String played = "" + data.get(kind).getPlayed();
+        String win = "" + data.get(kind).getWin();
+        String lose = "" + data.get(kind).getLose();
+
+        // getRatio()は 0.0 から 1.0 を返すので、パーセント表記に直す。
+        // 末尾の % は RankingFormat の側に含まれている。
+        String ratio = String.format("%1$.1f", data.get(kind).getRatio() * 100);
+
+        sender.sendMessage(Messages.get("RankingFormat",
+                new String[]{"%rank", "%name", "%played", "%win", "%lose", "%ratio"},
+                new String[]{rank, name, played, win, lose, ratio}));
     }
 
     private boolean doReload(CommandSender sender, Command command, String label, String[] args) {

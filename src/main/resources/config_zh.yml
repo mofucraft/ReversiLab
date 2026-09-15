@@ -17,6 +17,17 @@ prohibitWorlds: []
 # 游戏结束的等待时间
 sessionEndWaitSeconds: 15
 
+# 每回合的时间限制（秒）。超时的玩家将以认输判负。设为 0 则不限时。
+turnTimeLimitSeconds: 600
+
+# 回合切换时播放的音效。音效名称可用 /playsound 命令补全查询。
+# 可以在逗号后指定音调（0.5 - 2.0）。设为 '' 则不播放音效。
+yourTurnSound: 'block.note_block.pling,2.0'
+otherTurnSound: 'block.note_block.hat,1.0'
+
+# 等待断线玩家重新连接的时间（秒）。超过该时间未重连将视为认输。
+disconnectWaitSeconds: 30
+
 # 是否使用库存交换系统
 enableTemporaryInventory: false
 

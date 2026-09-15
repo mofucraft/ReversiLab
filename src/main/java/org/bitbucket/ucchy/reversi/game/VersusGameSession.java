@@ -6,6 +6,7 @@
 package org.bitbucket.ucchy.reversi.game;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import org.bitbucket.ucchy.reversi.BetRewardType;
 import org.bitbucket.ucchy.reversi.Messages;
@@ -21,10 +22,9 @@ import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import com.github.ucchyocean.messaging.TitleDisplayComponent;
-import com.github.ucchyocean.messaging.tellraw.ClickEventType;
-import com.github.ucchyocean.messaging.tellraw.MessageComponent;
-import com.github.ucchyocean.messaging.tellraw.MessageParts;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 /**
  * 対戦のゲームセッション
@@ -46,6 +46,9 @@ public class VersusGameSession extends GameSession {
     private Location opponentReturnPoint;
     private TemporaryStorage tempStorage;
 
+    /** 切断した対局者ごとの、再接続待ちタスク */
+    private HashMap<String, BukkitRunnable> disconnectTasks;
+
     private ItemStack ownerBetItemTemp;
     private int ownerBetEcoTemp;
 
@@ -60,6 +63,7 @@ public class VersusGameSession extends GameSession {
         this.parent = parent;
         this.ownerName = ownerName;
         this.opponentName = opponentName;
+        this.disconnectTasks = new HashMap<String, BukkitRunnable>();
 
         // そのままINVITATIONフェーズを実行する
         runInvitation();
@@ -76,15 +80,18 @@ public class VersusGameSession extends GameSession {
         sendInfoMessage(ownerName, Messages.get("InformationInvitationSent", "%opponent", opponentName));
         sendInfoMessage(opponentName, Messages.get("InformationInvitationGot", "%owner", ownerName));
 
-        MessageComponent comp = new MessageComponent();
-        MessageParts buttonAccept = new MessageParts(Messages.get("ButtonInvitationAccept"));
-        buttonAccept.setClickEvent(ClickEventType.RUN_COMMAND, "/reversi accept");
-        comp.addParts(buttonAccept);
-        comp.addText("  ");
-        MessageParts buttonDeny = new MessageParts(Messages.get("ButtonInvitationDeny"));
-        buttonDeny.setClickEvent(ClickEventType.RUN_COMMAND, "/reversi deny");
-        comp.addParts(buttonDeny);
-        sendMessageComponent(opponentName, comp);
+        LegacyComponentSerializer serializer = LegacyComponentSerializer.legacySection();
+        Component buttonAccept = serializer.deserialize(Messages.get("ButtonInvitationAccept"))
+                .clickEvent(ClickEvent.runCommand("/reversi accept"));
+        Component buttonDeny = serializer.deserialize(Messages.get("ButtonInvitationDeny"))
+                .clickEvent(ClickEvent.runCommand("/reversi deny"));
+
+        // 空のコンポーネントを親にする。親にクリックイベントを持たせると、
+        // 区切りの空白までクリックできてしまうため。
+        sendMessageComponent(opponentName, Component.empty()
+                .append(buttonAccept)
+                .append(Component.text("  "))
+                .append(buttonDeny));
     }
 
     /**
@@ -135,11 +142,9 @@ public class VersusGameSession extends GameSession {
 
         // 飛行状態に変更する、ゲームモードはSURVIVALにする
         owner.setGameMode(GameMode.SURVIVAL);
-        owner.setAllowFlight(true);
-        owner.setFlying(true);
+        setFlyingMode(owner);
         opponent.setGameMode(GameMode.SURVIVAL);
-        opponent.setAllowFlight(true);
-        opponent.setFlying(true);
+        setFlyingMode(opponent);
 
         // 先攻後攻を決める
         int value = (int)(Math.random() * 2);
@@ -193,6 +198,9 @@ public class VersusGameSession extends GameSession {
      */
     private void runPreTurn(Piece piece) {
 
+        // 前の手番のタイマーを止める
+        stopTurnTimer();
+
         this.turn = (piece == Piece.BLACK) ? GameSessionTurn.BLACK_PRE : GameSessionTurn.WHITE_PRE;
 
         String playerName = (piece == Piece.BLACK) ? blackPlayerName : whitePlayerName;
@@ -207,15 +215,21 @@ public class VersusGameSession extends GameSession {
             return;
         }
 
-        // メッセージを表示
+        // メッセージと効果音で、ターンが切り替わったことを知らせる
+        ReversiLabConfig config = parent.getReversiLabConfig();
         if ( player != null && player.isOnline() ) {
-            TitleDisplayComponent.display(player, Messages.get("InformationYourTurn"), 10, 50, 20);
+            Utility.sendTitle(player, Messages.get("InformationYourTurn"), 10, 50, 20);
+            Utility.playSound(player, config.getYourTurnSound());
         }
         if ( other != null && other.isOnline() ) {
-            TitleDisplayComponent.display(other, Messages.get("InformationOtherTurn"), 10, 50, 20);
+            Utility.sendTitle(other, Messages.get("InformationOtherTurn"), 10, 50, 20);
+            Utility.playSound(other, config.getOtherTurnSound());
         }
 
         this.turn = (piece == Piece.BLACK) ? GameSessionTurn.BLACK : GameSessionTurn.WHITE;
+
+        // 手番の制限時間を計り始める
+        startTurnTimer(playerName);
     }
 
     /**
@@ -307,6 +321,11 @@ public class VersusGameSession extends GameSession {
 
         // この時点では、まだフェーズを変更しない。IN_GAMEのままにしておく。
         // this.phase = GameSessionPhase.END;
+        // ただし、決着済みであることが分かるようにフラグを立てておく。
+        setEndWaiting();
+
+        // 手番のタイマーを止める
+        stopTurnTimer();
 
         // どちらが勝ちか確認する。
         int black = getBoard().getBlackCount();
@@ -420,10 +439,72 @@ public class VersusGameSession extends GameSession {
     }
 
     /**
+     * 対局中(IN_GAME)に、対局者がサーバーから切断したときに呼び出される。
+     * 猶予時間内に再接続すれば対局を継続し、再接続しなければ投了として扱う。
+     * @param player 切断したプレイヤー
+     * @return セッションの終了処理を行ったかどうか
+     * @see org.bitbucket.ucchy.reversi.game.GameSession#onPlayerDisconnectInGame(org.bukkit.entity.Player)
+     */
+    @Override
+    protected boolean onPlayerDisconnectInGame(Player player) {
+
+        final String playerName = player.getName();
+
+        // 既に待機中なら、二重に待機しない。
+        if ( disconnectTasks.containsKey(playerName) ) return false;
+
+        int seconds = parent.getReversiLabConfig().getDisconnectWaitSeconds();
+
+        sendInfoMessageAll(Messages.get("InformationDisconnect",
+                new String[]{"%player", "%seconds"},
+                new String[]{playerName, "" + seconds}));
+
+        BukkitRunnable task = new BukkitRunnable() {
+            public void run() {
+
+                disconnectTasks.remove(playerName);
+
+                // 待っている間に対局が終わっていたなら、何もしない。
+                // 決着済みの帰還待ちは、フェーズがIN_GAMEのままな点に注意。
+                if ( getPhase() != GameSessionPhase.IN_GAME ) return;
+                if ( isEndWaiting() ) return;
+
+                // 再接続済みなら、何もしない。
+                Player target = Utility.getPlayerExact(playerName);
+                if ( target != null && target.isOnline() ) return;
+
+                // 投了として扱う。
+                resign(playerName);
+            }
+        };
+        task.runTaskLater(ReversiLab.getInstance(), seconds * 20);
+        disconnectTasks.put(playerName, task);
+
+        // セッションは継続する。
+        return false;
+    }
+
+    /**
+     * 切断していた対局者がサーバーに再接続したときに呼び出される。
+     * @param player 再接続したプレイヤー
+     * @see org.bitbucket.ucchy.reversi.game.GameSession#onPlayerReconnect(org.bukkit.entity.Player)
+     */
+    @Override
+    public void onPlayerReconnect(Player player) {
+
+        BukkitRunnable task = disconnectTasks.remove(player.getName());
+        if ( task == null ) return;
+
+        task.cancel();
+        sendInfoMessageAll(Messages.get("InformationReconnect", "%player", player.getName()));
+    }
+
+    /**
      * ゲームのCANCELフェーズを実行する
      */
     public void runCancel() {
 
+        stopTurnTimer();
         setPhase(GameSessionPhase.CANCEL);
 
         sendInfoMessageAll(Messages.get("InformationCancel"));
@@ -448,13 +529,26 @@ public class VersusGameSession extends GameSession {
      */
     @Override
     public void resign(Player player) {
+        resign(player.getName());
+    }
+
+    /**
+     * ゲームを投了する
+     * @param playerName 投了するプレイヤー名
+     * @see org.bitbucket.ucchy.reversi.game.GameSession#resign(java.lang.String)
+     */
+    @Override
+    protected void resign(String playerName) {
+
+        // 手番のタイマーを止める。
+        stopTurnTimer();
 
         // どちらが勝ちか確認する。
         int black = getBoard().getBlackCount();
         int white = getBoard().getWhiteCount();
         String winner = null;
         String loser = null;
-        if ( player.getName().equals(blackPlayerName) ) {
+        if ( playerName.equals(blackPlayerName) ) {
             winner = whitePlayerName;
             loser = blackPlayerName;
         } else {
@@ -552,8 +646,17 @@ public class VersusGameSession extends GameSession {
      */
     public void runFinalize() {
 
+        // 手番のタイマーを止める
+        stopTurnTimer();
+
         // このゲームセッションを登録から削除する
         parent.getGameSessionManager().removeSession(this);
+
+        // 再接続待ちのタスクが残っているなら、停止する
+        for ( BukkitRunnable task : disconnectTasks.values() ) {
+            task.cancel();
+        }
+        disconnectTasks.clear();
 
         Player owner = getOwnerPlayer();
         if ( owner != null ) {

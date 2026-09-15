@@ -25,8 +25,6 @@ import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import com.github.ucchyocean.messaging.TitleDisplayComponent;
-
 /**
  * CPU戦のゲームセッション
  * @author ucchy
@@ -103,8 +101,7 @@ public class SingleGameSession extends GameSession {
 
         // 飛行状態に変更する、ゲームモードはSURVIVALにする
         owner.setGameMode(GameMode.SURVIVAL);
-        owner.setAllowFlight(true);
-        owner.setFlying(true);
+        setFlyingMode(owner);
 
         // 先攻後攻を決める
         int value = (int)(Math.random() * 2);
@@ -162,6 +159,9 @@ public class SingleGameSession extends GameSession {
      */
     private void runPreTurn(final Piece piece) {
 
+        // 前の手番のタイマーを止める
+        stopTurnTimer();
+
         this.turn = (piece == Piece.BLACK) ? GameSessionTurn.BLACK_PRE : GameSessionTurn.WHITE_PRE;
 
         boolean isPlayerTurn =
@@ -177,12 +177,19 @@ public class SingleGameSession extends GameSession {
             return;
         }
 
-        // メッセージを表示
+        // メッセージと効果音で、ターンが切り替わったことを知らせる。
+        // CPUの手番はほぼ一瞬で終わるので、タイトル表示と同様に、自分の手番だけ知らせる。
         if ( isPlayerTurn ) {
-            TitleDisplayComponent.display(owner, Messages.get("InformationYourTurn"), 10, 50, 20);
+            Utility.sendTitle(owner, Messages.get("InformationYourTurn"), 10, 50, 20);
+            Utility.playSound(owner, parent.getReversiLabConfig().getYourTurnSound());
         }
 
         this.turn = (piece == Piece.BLACK) ? GameSessionTurn.BLACK : GameSessionTurn.WHITE;
+
+        // 手番の制限時間を計り始める。CPUの手番は一瞬で終わるので、計測しない。
+        if ( isPlayerTurn ) {
+            startTurnTimer(ownerName);
+        }
 
         // CPUが石を置く
         if ( !isPlayerTurn ) {
@@ -321,6 +328,11 @@ public class SingleGameSession extends GameSession {
 
         // この時点では、まだフェーズを変更しない。IN_GAMEのままにしておく。
         // this.phase = GameSessionPhase.END;
+        // ただし、決着済みであることが分かるようにフラグを立てておく。
+        setEndWaiting();
+
+        // 手番のタイマーを止める
+        stopTurnTimer();
 
         // どちらが勝ちか確認する。
         int black = getBoard().getBlackCount();
@@ -433,11 +445,25 @@ public class SingleGameSession extends GameSession {
     }
 
     /**
+     * 対局中(IN_GAME)に、対局者がサーバーから切断したときに呼び出される。
+     * CPU戦は待たせる相手がいないので、そのまま投了として扱う。
+     * @param player 切断したプレイヤー
+     * @return セッションの終了処理を行ったかどうか
+     * @see org.bitbucket.ucchy.reversi.game.GameSession#onPlayerDisconnectInGame(org.bukkit.entity.Player)
+     */
+    @Override
+    protected boolean onPlayerDisconnectInGame(Player player) {
+        resign(player);
+        return true;
+    }
+
+    /**
      * ゲームのCANCELフェーズを実行する
      */
     @Override
     public void runCancel() {
 
+        stopTurnTimer();
         setPhase(GameSessionPhase.CANCEL);
 
         sendInfoMessageAll(Messages.get("InformationCancel"));
@@ -452,6 +478,19 @@ public class SingleGameSession extends GameSession {
      */
     @Override
     public void resign(Player player) {
+        resign(player.getName());
+    }
+
+    /**
+     * ゲームを投了する
+     * @param playerName 投了するプレイヤー名
+     * @see org.bitbucket.ucchy.reversi.game.GameSession#resign(java.lang.String)
+     */
+    @Override
+    protected void resign(String playerName) {
+
+        // 手番のタイマーを止める。
+        stopTurnTimer();
 
         // メッセージを表示する
         int black = getBoard().getBlackCount();
@@ -491,6 +530,9 @@ public class SingleGameSession extends GameSession {
      * セッションの最終処理を行う
      */
     public void runFinalize() {
+
+        // 手番のタイマーを止める
+        stopTurnTimer();
 
         // このゲームセッションを登録から削除する
         parent.getGameSessionManager().removeSession(this);

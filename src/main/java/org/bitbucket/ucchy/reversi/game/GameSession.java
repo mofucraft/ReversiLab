@@ -23,7 +23,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import com.github.ucchyocean.messaging.tellraw.MessageComponent;
+import net.kyori.adventure.text.Component;
 
 /**
  * ゲームセッションの抽象クラス
@@ -35,6 +35,7 @@ public abstract class GameSession {
     private int grid_z;
 
     private GameSessionPhase phase;
+    private boolean endWaiting;
     private GameBoard board;
     private GameField field;
     private GameSessionLogger logger;
@@ -42,6 +43,7 @@ public abstract class GameSession {
     private ArrayList<String> spectators;
     private HashMap<String, Location> spectatorReturnPoints;
     private SidebarDisplay sidebar;
+    private TurnTimer turnTimer;
 
     /**
      * コンストラクタ
@@ -166,6 +168,22 @@ public abstract class GameSession {
      */
     public void setSidebar(Player player) {
         sidebar.setShowPlayer(player);
+    }
+
+    /**
+     * 対局が決着して、帰還待ちの状態にする。
+     * 帰還待ちの間、フェーズはIN_GAMEのままになっている点に注意すること。
+     */
+    protected void setEndWaiting() {
+        this.endWaiting = true;
+    }
+
+    /**
+     * 対局が決着して、帰還待ちになっているかどうかを返す
+     * @return 帰還待ちかどうか
+     */
+    public boolean isEndWaiting() {
+        return endWaiting;
     }
 
     /**
@@ -296,10 +314,10 @@ public abstract class GameSession {
      * @param playerName プレイヤー名
      * @param component メッセージコンポーネント
      */
-    protected void sendMessageComponent(String playerName, MessageComponent component) {
+    protected void sendMessageComponent(String playerName, Component component) {
         Player player = Utility.getPlayerExact(playerName);
         if ( player == null ) return;
-        component.send(player);
+        player.sendMessage(component);
     }
 
     /**
@@ -378,10 +396,77 @@ public abstract class GameSession {
     }
 
     /**
+     * 手番の制限時間を計り始める。
+     * 既にタイマーが動いているなら、先に停止する。
+     * @param playerName 手番のプレイヤー名
+     */
+    protected void startTurnTimer(String playerName) {
+
+        stopTurnTimer();
+
+        int limit = ReversiLab.getInstance()
+                .getReversiLabConfig().getTurnTimeLimitSeconds();
+        turnTimer = TurnTimer.startNew(this, playerName, limit);
+    }
+
+    /**
+     * 手番の制限時間の計測を止めて、ボスバーを消す。
+     */
+    protected void stopTurnTimer() {
+
+        if ( turnTimer == null ) return;
+
+        turnTimer.stop();
+        turnTimer = null;
+    }
+
+    /**
+     * 手番が制限時間を超えたときに呼び出される。投了として扱う。
+     * @param playerName 時間切れになったプレイヤー名
+     */
+    protected void onTurnTimeout(String playerName) {
+
+        sendInfoMessageAll(Messages.get("InformationTurnTimeout", "%player", playerName));
+        resign(playerName);
+    }
+
+    /**
+     * プレイヤーを飛行状態にする。
+     * 対局の開始地点は盤面から少し離れた空中にあり、足元には何も無いため、
+     * 飛行状態が外れると、プレイヤーはそのまま落下してしまう。
+     * テレポートやワールド移動と同じtickで設定すると、その後に走る同期処理で
+     * 上書きされてしまうことがあるので、次のtickでも設定し直す。
+     * @param player プレイヤー
+     */
+    public static void setFlyingMode(final Player player) {
+
+        if ( player == null ) return;
+
+        applyFlyingMode(player);
+
+        new BukkitRunnable() {
+            public void run() {
+                if ( !player.isOnline() ) return;
+                applyFlyingMode(player);
+            }
+        }.runTaskLater(ReversiLab.getInstance(), 1);
+    }
+
+    /**
+     * プレイヤーの飛行状態を設定する
+     * @param player プレイヤー
+     */
+    private static void applyFlyingMode(Player player) {
+        player.setAllowFlight(true);
+        player.setFlying(true);
+        player.setFallDistance(0);
+    }
+
+    /**
      * インベントリにある石を消去する。
      * @param player プレイヤー
      */
-    protected static void clearDiscItemInInventory(Player player) {
+    public static void clearDiscItemInInventory(Player player) {
         ArrayList<Integer> indexiesToRemove = new ArrayList<Integer>();
         for ( int index=0; index<player.getInventory().getSize(); index++ ) {
             ItemStack item = player.getInventory().getItem(index);
@@ -429,10 +514,53 @@ public abstract class GameSession {
     public abstract void runCancel();
 
     /**
+     * 対局者がサーバーから切断したときに呼び出される。
+     * @param player 切断したプレイヤー
+     * @return セッションの終了処理を行ったかどうか。trueの場合、
+     * runFinalize()の中でインベントリの返却が行われている。
+     */
+    public boolean onPlayerDisconnect(Player player) {
+
+        // 対局が決着していて帰還待ちなら、何もしない。
+        // 放置しておいても、帰還待ちが明けたときに終了処理が行われる。
+        if ( endWaiting ) return false;
+
+        // 対局が始まっていないなら、対局をキャンセルする。
+        if ( getPhase() != GameSessionPhase.IN_GAME ) {
+            runCancel();
+            return true;
+        }
+
+        return onPlayerDisconnectInGame(player);
+    }
+
+    /**
+     * 対局中(IN_GAME)に、対局者がサーバーから切断したときに呼び出される。
+     * @param player 切断したプレイヤー
+     * @return セッションの終了処理を行ったかどうか
+     */
+    protected abstract boolean onPlayerDisconnectInGame(Player player);
+
+    /**
+     * 切断していた対局者がサーバーに再接続したときに呼び出される。
+     * @param player 再接続したプレイヤー
+     */
+    public void onPlayerReconnect(Player player) {
+        // デフォルトでは何もしない。
+    }
+
+    /**
      * ゲームを投了する
      * @param player 投了するプレイヤー
      */
     public abstract void resign(Player player);
+
+    /**
+     * ゲームを投了する。
+     * 時間切れや切断のように、Playerを取得できない場合があるため、名前で指定する。
+     * @param playerName 投了するプレイヤー名
+     */
+    protected abstract void resign(String playerName);
 
     /**
      * 指定したプレイヤーが、セッションをキャンセルすることができるかどうかを判定する

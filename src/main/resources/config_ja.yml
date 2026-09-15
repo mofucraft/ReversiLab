@@ -17,6 +17,21 @@ prohibitWorlds: []
 # ゲーム終了してから、テレポートして元の場所に戻るまでの、待ち時間（秒）
 sessionEndWaitSeconds: 15
 
+# 1手にかけられる制限時間（秒）。時間切れになったプレイヤーは、投了扱いで敗北します。
+# 0 を指定すると、制限時間なしになります。
+turnTimeLimitSeconds: 600
+
+# ターンが切り替わったときに再生する効果音。
+# 音の名前は、/playsound コマンドの補完で調べることができます。
+# カンマに続けて、ピッチ（0.5 - 2.0）を指定することもできます。
+# '' を指定すると、効果音を鳴らしません。
+yourTurnSound: 'block.note_block.pling,2.0'
+otherTurnSound: 'block.note_block.hat,1.0'
+
+# 対局中に切断したプレイヤーの再接続を待つ時間（秒）。
+# この時間を過ぎても再接続しない場合、投了として扱われます。
+disconnectWaitSeconds: 30
+
 # インベントリ切り替えシステムを使用するかどうか。
 enableTemporaryInventory: false
 

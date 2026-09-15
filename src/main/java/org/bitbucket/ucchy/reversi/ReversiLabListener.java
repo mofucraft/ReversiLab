@@ -194,18 +194,21 @@ public class ReversiLabListener implements Listener {
                     respawn = Bukkit.getWorld("world").getSpawnLocation();
                 }
                 player.teleport(respawn, TeleportCause.PLUGIN);
+
+                // 切断中に対局が終了した場合、石が手元に残っているので回収する。
+                GameSession.clearDiscItemInInventory(player);
                 return;
 
             } else {
                 // セッションがあってサーバーに再参加した場合は、
                 // 飛行状態に再設定する。サイドバーを表示する。
-                player.setAllowFlight(true);
-                player.setFlying(true);
+                GameSession.setFlyingMode(player);
                 session.setSidebar(player);
 
                 // インベントリを再度預かる。
                 if ( session.isPlayer(player.getName()) ) {
                     session.switchInventory(player);
+                    session.onPlayerReconnect(player);
                 }
 
                 return;
@@ -224,12 +227,16 @@ public class ReversiLabListener implements Listener {
         GameSession session = manager.getSession(player);
         if ( session == null || session.isEnd() ) return;
 
-        if ( player.getWorld().getName().equals(ReversiLab.WORLD_NAME) ) {
+        // 観客が抜けただけなら、何もしない。
+        if ( !session.isPlayer(player.getName()) ) return;
 
-            if ( session.isPlayer(player.getName()) ) {
-                // 途中で切断してしまった場合は、一時的にインベントリの内容を返してあげる
-                session.switchInventory(player);
-            }
+        // 対局者が切断した場合の処理を行う。セッションを終了した場合は、
+        // runFinalize()の中でインベントリが返却されるので、ここでは何もしない。
+        if ( session.onPlayerDisconnect(player) ) return;
+
+        if ( player.getWorld().getName().equals(ReversiLab.WORLD_NAME) ) {
+            // 途中で切断してしまった場合は、一時的にインベントリの内容を返してあげる
+            session.switchInventory(player);
         }
     }
 

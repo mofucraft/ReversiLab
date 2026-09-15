@@ -24,6 +24,7 @@ import java.util.zip.ZipEntry;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
@@ -408,5 +409,56 @@ public class Utility {
         } else {
             player.setItemInHand(item);
         }
+    }
+
+    /**
+     * プレイヤーに効果音を再生する
+     * @param player プレイヤー
+     * @param sound 効果音の指定。'音の名前,ピッチ' の形式で指定する。
+     * ピッチを省略した場合は 1.0 が使用される。
+     * nullや空文字が指定された場合は、何も再生しない。
+     */
+    public static void playSound(Player player, String sound) {
+
+        if ( player == null || sound == null ) return;
+
+        String name = sound;
+        float pitch = 1.0f;
+
+        int index = sound.indexOf(",");
+        if ( index >= 0 ) {
+            name = sound.substring(0, index);
+            try {
+                pitch = Float.parseFloat(sound.substring(index + 1).trim());
+            } catch (NumberFormatException e) {
+                pitch = 1.0f;
+            }
+        }
+
+        name = name.trim();
+        if ( name.length() == 0 ) return;
+
+        player.playSound(player.getLocation(), name, SoundCategory.PLAYERS, 1.0f, pitch);
+    }
+
+    /**
+     * プレイヤーにタイトルを表示する
+     * @param player プレイヤー
+     * @param message 表示するメッセージ。改行が含まれている場合は、
+     * 1行目がタイトル、2行目がサブタイトルとして表示される。
+     * @param fadeIn フェードインにかける時間（tick）
+     * @param stay 表示し続ける時間（tick）
+     * @param fadeOut フェードアウトにかける時間（tick）
+     */
+    public static void sendTitle(
+            Player player, String message, int fadeIn, int stay, int fadeOut) {
+
+        if ( player == null || message == null ) return;
+
+        String[] lines = message.split("\n");
+        String title = replaceColorCode(lines[0]);
+        String subtitle = ( lines.length >= 2 ) ? replaceColorCode(lines[1]) : "";
+
+        player.sendTitle(title, subtitle, fadeIn, stay, fadeOut);
     }
 }

@@ -17,6 +17,21 @@ prohibitWorlds: []
 # The wait seconds, from session ends, to teleport back.
 sessionEndWaitSeconds: 15
 
+# The time limit of a turn, in seconds. The player who runs out of time
+# loses the game as a resignation. Set to 0 to disable the time limit.
+turnTimeLimitSeconds: 600
+
+# The sound that is played when the turn changes.
+# Specify a sound name, which you can find with the /playsound command.
+# You can append the pitch (0.5 - 2.0) after a comma.
+# Set to '' to play no sound.
+yourTurnSound: 'block.note_block.pling,2.0'
+otherTurnSound: 'block.note_block.hat,1.0'
+
+# The wait seconds, for a disconnected player to reconnect,
+# before the game is treated as a resignation.
+disconnectWaitSeconds: 30
+
 # Enable/disable inventory switching system.
 enableTemporaryInventory: false
 

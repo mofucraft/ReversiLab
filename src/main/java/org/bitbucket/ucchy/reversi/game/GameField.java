@@ -75,8 +75,11 @@ public class GameField {
         putStone(4, 3, Piece.WHITE);
         putStone(4, 4, Piece.BLACK);
 
-        // プレイヤーの開始位置を設定
-        this.primaryPlayerLocation = origin.clone().add(4, 5, -1)
+        // プレイヤーの開始位置を設定。
+        // 盤面は z = 0 から 7 の8マスなので、その両端の真上に立たせる。
+        // z = -1 にすると盤面から外れて足元が無くなり、飛行状態が外れたときに
+        // そのまま落下してしまうし、視線も盤面の中心からずれてしまう。
+        this.primaryPlayerLocation = origin.clone().add(4, 5, 0)
                 .setDirection(new Vector(0, -5, 5).normalize());
         this.secondaryPlayerLocation = origin.clone().add(4, 5, 8)
                 .setDirection(new Vector(0, -5, -5).normalize());
@@ -114,8 +117,9 @@ public class GameField {
 
         // エフェクト発生
         Location effectLocation = stand.getLocation().add(0, 1.2, 0);
-        int data = (piece == Piece.BLACK) ? 49 : 42;
-        stand.getWorld().playEffect(effectLocation, Effect.STEP_SOUND, data);
+        Material effect = (piece == Piece.BLACK) ?
+                Material.OBSIDIAN : Material.IRON_BLOCK;
+        stand.getWorld().playEffect(effectLocation, Effect.STEP_SOUND, effect);
     }
 
     /**
@@ -219,7 +223,7 @@ public class GameField {
 
                 Location loc = center.clone().add(Math.random() * 4 - 2, 1, Math.random() * 4 - 2);
 
-                Firework firework = (Firework)center.getWorld().spawnEntity(loc, EntityType.FIREWORK);
+                Firework firework = (Firework)center.getWorld().spawnEntity(loc, EntityType.FIREWORK_ROCKET);
                 FireworkMeta meta = firework.getFireworkMeta();
                 FireworkEffect effect = FireworkEffect.builder()
                         .flicker(true)

@@ -34,6 +34,12 @@ public class PlayerMoveChecker extends BukkitRunnable {
                 if ( field.isOutOfSpectateField(player.getLocation()) ) {
                     player.teleport(field.getCenterRespawnPoint(), TeleportCause.PLUGIN);
                 }
+
+                // 対局者の飛行状態が外れていたら、元に戻す。
+                // 他のプラグインなどによって解除されてしまうことがあるため。
+                if ( session.isPlayer(player.getName()) && !player.getAllowFlight() ) {
+                    GameSession.setFlyingMode(player);
+                }
             }
         }
     }

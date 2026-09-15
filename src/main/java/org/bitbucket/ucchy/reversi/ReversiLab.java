@@ -8,7 +8,6 @@ package org.bitbucket.ucchy.reversi;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 import org.bitbucket.ucchy.reversi.bridge.VaultEcoBridge;
 import org.bitbucket.ucchy.reversi.game.GameSession;
@@ -147,18 +146,9 @@ public class ReversiLab extends JavaPlugin {
         WorldCreator creator = new WorldCreator(WORLD_NAME);
 
         // チャンクジェネレータを設定し、からっぽの世界が生成されるようにする
-        creator.generator(new ChunkGenerator() {
-            /*
-            public byte[][] generateBlockSections(
-                    World world, Random r,
-                    int x, int z, ChunkGenerator.BiomeGrid biomes) {
-                return new byte[256 / 16][];
-            }
-            */
-            public ChunkData generateChunkData(World world, Random random, int x, int z, BiomeGrid biome) {
-                return createChunkData(world);
-            }
-        });
+        // CB1.17以降のChunkGeneratorは、shouldGenerateXxxが全てfalse、
+        // generateXxxが全て空実装なので、何もオーバーライドしなくてよい。
+        creator.generator(new ChunkGenerator() {});
 
         World world = getServer().createWorld(creator);
 
