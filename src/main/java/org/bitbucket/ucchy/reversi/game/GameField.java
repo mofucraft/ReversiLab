@@ -219,7 +219,7 @@ public class GameField {
 
                 Location loc = center.clone().add(Math.random() * 4 - 2, 1, Math.random() * 4 - 2);
 
-                Firework firework = (Firework)center.getWorld().spawnEntity(loc, EntityType.FIREWORK);
+                Firework firework = (Firework)center.getWorld().spawnEntity(loc, EntityType.FIREWORK_ROCKET);
                 FireworkMeta meta = firework.getFireworkMeta();
                 FireworkEffect effect = FireworkEffect.builder()
                         .flicker(true)
