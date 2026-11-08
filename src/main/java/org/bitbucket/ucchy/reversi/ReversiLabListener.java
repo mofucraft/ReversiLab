@@ -4,6 +4,7 @@ import org.bitbucket.ucchy.reversi.game.GameSession;
 import org.bitbucket.ucchy.reversi.game.GameSessionManager;
 import org.bitbucket.ucchy.reversi.game.GameSessionPhase;
 import org.bitbucket.ucchy.reversi.game.Piece;
+import org.bitbucket.ucchy.reversi.game.SidebarDisplay;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -183,20 +184,30 @@ public class ReversiLabListener implements Listener {
         Player player = event.getPlayer();
         GameSession session = manager.getSession(player);
 
+        // 対局中の対局者でないのに石を持っている場合は回収する。
+        // 切断中に対局が終了した場合や、旧バージョンで回収されずに残った石が対象。
+        // 他のプラグインによって専用ワールド以外へ移されている場合もあるので、
+        // ワールドに関係なく行う。
+        if ( session == null || session.isEnd() || !session.isPlayer(player.getName()) ) {
+            GameSession.clearDiscItemInInventory(player);
+        }
+
         if ( player.getWorld().getName().equals(ReversiLab.WORLD_NAME) ) {
 
             if ( session == null || session.isEnd() ) {
                 // セッションが無いのに専用ワールドに来た場合は、
                 // リスポーン地点へ強制送還させる。
                 player.setGameMode(GameMode.SURVIVAL);
-                Location respawn = player.getBedSpawnLocation();
+                Location respawn = player.getRespawnLocation();
                 if ( respawn == null ) {
-                    respawn = Bukkit.getWorld("world").getSpawnLocation();
+                    // メインワールドの名前は "world" とは限らないので、
+                    // 最初に読み込まれたワールドを使う。
+                    respawn = Bukkit.getWorlds().get(0).getSpawnLocation();
                 }
                 player.teleport(respawn, TeleportCause.PLUGIN);
 
-                // 切断中に対局が終了した場合、石が手元に残っているので回収する。
-                GameSession.clearDiscItemInInventory(player);
+                // 観戦用のサイドバーが残っている場合があるので、元に戻す。
+                SidebarDisplay.setMainScoreboard(player);
                 return;
 
             } else {
@@ -206,6 +217,7 @@ public class ReversiLabListener implements Listener {
                 session.setSidebar(player);
 
                 // インベントリを再度預かる。
+                // 石は onPlayerReconnect() の中で持たせ直す。
                 if ( session.isPlayer(player.getName()) ) {
                     session.switchInventory(player);
                     session.onPlayerReconnect(player);
@@ -227,12 +239,23 @@ public class ReversiLabListener implements Listener {
         GameSession session = manager.getSession(player);
         if ( session == null || session.isEnd() ) return;
 
-        // 観客が抜けただけなら、何もしない。
-        if ( !session.isPlayer(player.getName()) ) return;
+        // 観客なら、観戦から抜けさせる。
+        // そのままにすると、観戦用のゲームモードとサイドバーを持ったまま、
+        // リバーシのワールドに取り残されてしまう。
+        if ( !session.isPlayer(player.getName()) ) {
+            session.leaveSpectator(player);
+            return;
+        }
 
         // 対局者が切断した場合の処理を行う。セッションを終了した場合は、
         // runFinalize()の中でインベントリが返却されるので、ここでは何もしない。
         if ( session.onPlayerDisconnect(player) ) return;
+
+        // 石を持ったまま退出させないよう、ここで回収しておく。
+        // 猶予時間内に再接続した場合は、onPlayerReconnect() で持たせ直す。
+        // そのまま対局が終わった場合は、オフラインのため runFinalize() で回収できないので、
+        // 必ずこの時点で回収しておく必要がある。
+        GameSession.clearDiscItemInInventory(player);
 
         if ( player.getWorld().getName().equals(ReversiLab.WORLD_NAME) ) {
             // 途中で切断してしまった場合は、一時的にインベントリの内容を返してあげる

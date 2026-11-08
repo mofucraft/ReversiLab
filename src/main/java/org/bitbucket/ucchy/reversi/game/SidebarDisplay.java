@@ -43,7 +43,7 @@ public class SidebarDisplay {
      * 指定されたプレイヤーを、メインスコアボード表示に戻す
      * @param player プレイヤー
      */
-    public void setMainScoreboard(Player player) {
+    public static void setMainScoreboard(Player player) {
         player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
     }
 

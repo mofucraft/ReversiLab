@@ -493,10 +493,15 @@ public class VersusGameSession extends GameSession {
     public void onPlayerReconnect(Player player) {
 
         BukkitRunnable task = disconnectTasks.remove(player.getName());
-        if ( task == null ) return;
+        if ( task != null ) {
+            task.cancel();
+            sendInfoMessageAll(Messages.get("InformationReconnect", "%player", player.getName()));
+        }
 
-        task.cancel();
-        sendInfoMessageAll(Messages.get("InformationReconnect", "%player", player.getName()));
+        // 切断時に石を回収しているので、対局が続いているなら持たせ直す。
+        if ( getPhase() == GameSessionPhase.IN_GAME && !isEndWaiting() ) {
+            setDiscItemInHand(player, player.getName().equals(blackPlayerName));
+        }
     }
 
     /**

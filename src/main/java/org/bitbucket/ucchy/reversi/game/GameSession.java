@@ -17,19 +17,26 @@ import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 
 /**
  * ゲームセッションの抽象クラス
  * @author ucchy
  */
 public abstract class GameSession {
+
+    private static final String BLACK_DISC_NAME = "Black Stone";
+    private static final String WHITE_DISC_NAME = "White Stone";
+    private static NamespacedKey discKey;
 
     private int grid_x;
     private int grid_z;
@@ -125,14 +132,16 @@ public abstract class GameSession {
 
         // 参加前に居た場所に戻す
         Location loc = spectatorReturnPoints.get(player.getName());
-        player.teleport(loc, TeleportCause.PLUGIN);
+        if ( loc != null ) {
+            player.teleport(loc, TeleportCause.PLUGIN);
+        }
 
         // 観客から削除する
         spectators.remove(player.getName());
         spectatorReturnPoints.remove(player.getName());
 
         // サイドバーを解除
-        sidebar.setMainScoreboard(player);
+        SidebarDisplay.setMainScoreboard(player);
 
         // ゲームモードを変更
         player.setGameMode(GameMode.SURVIVAL);
@@ -150,11 +159,13 @@ public abstract class GameSession {
 
                 // 参加前に居た場所に戻す
                 Location loc = spectatorReturnPoints.get(name);
-                spectator.teleport(loc, TeleportCause.PLUGIN);
-                spectator.setFallDistance(0);
+                if ( loc != null ) {
+                    spectator.teleport(loc, TeleportCause.PLUGIN);
+                    spectator.setFallDistance(0);
+                }
 
                 // サイドバーを解除
-                sidebar.setMainScoreboard(spectator);
+                SidebarDisplay.setMainScoreboard(spectator);
 
                 // ゲームモードを変更
                 spectator.setGameMode(GameMode.SURVIVAL);
@@ -367,7 +378,7 @@ public abstract class GameSession {
      * @param player プレイヤー
      */
     protected void removeSidebar(Player player) {
-        sidebar.setMainScoreboard(player);
+        SidebarDisplay.setMainScoreboard(player);
     }
 
     /**
@@ -380,18 +391,63 @@ public abstract class GameSession {
         if ( isBlack ) {
             disc = new ItemStack(Material.NETHER_BRICKS);
             ItemMeta meta = disc.getItemMeta();
-            meta.setDisplayName("Black Stone");
+            meta.setDisplayName(BLACK_DISC_NAME);
+            meta.getPersistentDataContainer().set(getDiscKey(), PersistentDataType.BYTE, (byte)1);
             disc.setItemMeta(meta);
         } else {
             disc = new ItemStack(Material.QUARTZ_BLOCK);
             ItemMeta meta = disc.getItemMeta();
-            meta.setDisplayName("White Stone");
+            meta.setDisplayName(WHITE_DISC_NAME);
+            meta.getPersistentDataContainer().set(getDiscKey(), PersistentDataType.BYTE, (byte)1);
             disc.setItemMeta(meta);
         }
         ItemStack temp = Utility.getItemInHand(player);
         Utility.setItemInHand(player, disc);
         if ( temp != null && temp.getType() != Material.AIR ) {
-            player.getInventory().addItem(temp);
+            // インベントリに入りきらなかった分は、消えてしまわないよう足元に落とす。
+            for ( ItemStack leftover : player.getInventory().addItem(temp).values() ) {
+                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+            }
+        }
+    }
+
+    /**
+     * 石アイテムの目印に使うキーを取得する
+     * @return キー
+     */
+    private static NamespacedKey getDiscKey() {
+        if ( discKey == null ) {
+            discKey = new NamespacedKey(ReversiLab.getInstance(), "disc");
+        }
+        return discKey;
+    }
+
+    /**
+     * 指定されたアイテムが、リバーシの石かどうかを判定する。
+     * @param item アイテム
+     * @return 石かどうか
+     */
+    public static boolean isDiscItem(ItemStack item) {
+        if ( item == null || !item.hasItemMeta() ) return false;
+        Material type = item.getType();
+        if ( type != Material.NETHER_BRICKS && type != Material.QUARTZ_BLOCK ) return false;
+
+        ItemMeta meta = item.getItemMeta();
+
+        // 目印が付いていれば石である。
+        if ( meta.getPersistentDataContainer().has(getDiscKey(), PersistentDataType.BYTE) ) {
+            return true;
+        }
+
+        // 目印の無い旧バージョンの石は、表示名で判定する。
+        // 装飾コードの有無に左右されないよう、プレーンテキストにして比較する。
+        Component displayName = meta.displayName();
+        if ( displayName == null ) return false;
+        String name = PlainTextComponentSerializer.plainText().serialize(displayName);
+        if ( type == Material.NETHER_BRICKS ) {
+            return BLACK_DISC_NAME.equals(name);
+        } else {
+            return WHITE_DISC_NAME.equals(name);
         }
     }
 
@@ -467,24 +523,15 @@ public abstract class GameSession {
      * @param player プレイヤー
      */
     public static void clearDiscItemInInventory(Player player) {
-        ArrayList<Integer> indexiesToRemove = new ArrayList<Integer>();
         for ( int index=0; index<player.getInventory().getSize(); index++ ) {
-            ItemStack item = player.getInventory().getItem(index);
-            if ( item == null || item.getType() == Material.AIR ) continue;
-            if ( item.getType() == Material.NETHER_BRICKS && item.hasItemMeta() ) {
-                ItemMeta meta = item.getItemMeta();
-                if ( meta.hasDisplayName() && meta.getDisplayName().equals("Black Stone") ) {
-                    indexiesToRemove.add(index);
-                }
-            } else if ( item.getType() == Material.QUARTZ_BLOCK && item.hasItemMeta() ) {
-                ItemMeta meta = item.getItemMeta();
-                if ( meta.hasDisplayName() && meta.getDisplayName().equals("White Stone") ) {
-                    indexiesToRemove.add(index);
-                }
+            if ( isDiscItem(player.getInventory().getItem(index)) ) {
+                player.getInventory().setItem(index, null);
             }
         }
-        for ( int index : indexiesToRemove ) {
-            player.getInventory().setItem(index, new ItemStack(Material.AIR));
+
+        // インベントリ画面でカーソルに持っている場合も消去する。
+        if ( isDiscItem(player.getItemOnCursor()) ) {
+            player.setItemOnCursor(null);
         }
     }
 
